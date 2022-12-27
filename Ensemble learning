@@ -1,0 +1,199 @@
+# importing dependencies
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVR
+from sklearn.pipeline import make_pipeline
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import accuracy_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import GaussianNB
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import VotingClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.metrics import accuracy_score
+from sklearn import datasets
+
+
+# importing dataset
+data=pd.read_csv('train.csv').select_dtypes(include='number')
+
+# handling of missing values
+data.isnull().sum()
+data = data.fillna(data.mean())
+data.head()
+
+
+[Problem 1] Blending scratch mounting
+X_train, X_test, y_train, y_test = train_test_split(X,y,test_size=0.2,random_state=1)
+print('X_train shape:{}, y_test shape:{}'.format(X_train.shape,y_test.shape))
+
+# example 1
+models = [LinearRegression(),SVR(),DecisionTreeRegressor()]
+predictions = list()
+for model in models:
+    model.fit(X_train,y_train)
+    predictions.append(model.predict(X_test))
+    
+predictions_ndarray = np.array(predictions)
+blend = np.mean(predictions_ndarray,axis=0)
+
+print('MSE')
+print('-------')
+print('blend:{:.3f}'.format(mean_squared_error(y_test,blend)))
+
+# example 2
+svr_model1 = SVR(C=1)
+svr_model2 = SVR(C=5)
+svr_model3 = SVR(C=10)
+svr_model1.fit(X_train,y_train)
+svr_model2.fit(X_train,y_train)
+svr_model3.fit(X_train,y_train)
+svr_pred1 = svr_model1.predict(X_test)
+svr_pred2 = svr_model2.predict(X_test)
+svr_pred3 = svr_model2.predict(X_test)
+    
+svr_blend = np.mean([svr_pred1,svr_pred2,svr_pred3],axis=0)
+
+print('MSE')
+print('-------')
+print('blend:{:.3f}'.format(mean_squared_error(y_test,svr_blend)))
+
+# example 3
+std_scaler = StandardScaler()
+std_scaler.fit(X_train)
+X_train_trans = std_scaler.transform(X_train)
+X_test_trans = std_scaler.transform(X_test)
+
+models2 = [LinearRegression(),SVR(),DecisionTreeRegressor()]
+predictions2 = list()
+for model in models2:
+    model.fit(X_train_trans,y_train)
+    predictions2.append(model.predict(X_test_trans))
+    
+predictions_ndarray2 = np.array(predictions)
+blend2 = np.mean(predictions_ndarray2,axis=0)
+
+print('MSE')
+print('-------')
+print('blend:{:.3f}'.format(mean_squared_error(y_test,blend2)))
+
+[Problem 2] Scratch mounting of bagging
+
+X_train_bag, X_test_bag, y_train_bag, y_test_bag = train_test_split(X,y,test_size=0.2,shuffle=True)
+print('X_train shape:{}, y_test shape:{}'.format(X_train_bag.shape,y_test_bag.shape))
+
+models = [LinearRegression(),SVR(),DecisionTreeRegressor()]
+class BaggingScratch():
+    def __init__(self, models):
+        self.models = models
+        self.predictions = list()
+        
+    def fit(self,X,y):
+        for model in models:
+            model.fit(X,y)
+    def predict(self,X):
+        predictions = list()
+        for model in self.models:
+            prediction = model.predict(X)
+            predictions.append(prediction)
+        self.predictions = np.mean(np.array(predictions),axis=0)
+        return self.predictions
+    def mse(self, y):
+        mse = (mean_squared_error(y,self.predictions))
+        return mse
+    
+
+bag = BaggingScratch(models)
+bag.fit(X_train,y_train)
+print("average of bagging pred:{}".format(bag.predict(X_test)))
+print("average of bagging mse:{:.3f}".format(bag.mse(y_test)))
+
+[Problem 3] Stacking scratch mounting
+
+def get_dataset():
+    X, y = datasets.make_classification(n_samples=10000, n_features=20, n_informative=15, n_redundant=5, random_state=7)
+    return X, y
+
+X, y = get_dataset()
+# splitting into train and tests(used for base models)
+X_train_full, X_test_1, y_train_full, y_test_1 = train_test_split(X,y,test_size=0.5,random_state=1)
+
+# splitting into train and validations(used for ensemble model)
+X_train_1, X_val, y_train_1, y_val = train_test_split(X_train_full,y_train_full,test_size=0.2,random_state=1)
+
+# a function to return the models in a form of a tuple
+def get_models():
+    models = list()
+    models.append(('lr',LinearRegression()))
+    models.append(('knn', KNeighborsClassifier()))
+    models.append(('cart', DecisionTreeRegressor()))
+    models.append(('bayes', GaussianNB()))
+    return models
+
+# a function to fit and blend all of our models
+def fit_ensemble(models, X_train_1, X_val, y_train_1, y_val):
+    # fit and predict using the validation data
+    
+    # a list to hold the predicted data from the base model for the blender model
+    meta_X = list()
+    
+    # loop through our models
+    for name,model in models:
+        model.fit(X_train_1, y_train_1)
+        y_pred = model.predict(X_val)
+        
+        # reshaping the predicted results into a matrix with one column
+        y_pred = y_pred.reshape(len(y_pred), 1)
+        meta_X.append(y_pred)
+        
+    meta_X = np.hstack(meta_X)
+    
+    # defining our blender
+    blender = LinearRegression()
+    
+    # fitting our blender using our meta values and y validation set
+    blender.fit(meta_X, y_val)
+    return blender
+
+# a function to make predictions with our ensemble
+def pred_ensemble(models, blender, X_test_1):
+    # a list to hold te predictions for the blender
+    meta_X = list()
+    
+    # loop through our models
+    for name,model in models:
+        
+        # predicting using our base models
+        y_pred = model.predict(X_test_1)
+        
+        # reshaping the predicted results into a matrix with one column
+        y_pred = y_pred.reshape(len(y_pred), 1)
+        meta_X.append(y_pred)
+        
+    meta_X = np.hstack(meta_X)
+    
+    # predicting using our blender
+    return blender.predict(meta_X)
+
+models = get_models()
+blender = fit_ensemble(models, X_train_1, X_val, y_train_1, y_val)
+y_pred = pred_ensemble(models, blender, X_test_1)
+
+# printing mse
+print("Values used")
+print("Train:{} Val:{} Test:{}".format(X_train_1.shape, X_val.shape, X_test_1.shape))
+print("Accuracy score")
+print("------------------")
+print("Blended ensemble:{:.3f}".format(mean_squared_error(y_test_1,y_pred)))
+
+# on individual model
+model = LinearRegression()
+model.fit(X_train_1, y_train_1)
+y_pred1= model.predict(X_test_1)
+print("Logistic regression:{:.3f}".format(mean_squared_error(y_test_1,y_pred1)))
+
